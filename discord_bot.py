@@ -19,9 +19,29 @@ NOTION_API_KEY = os.getenv("NOTION_API_KEY")
 DATABASE_ID = os.getenv("DATABASE_ID")
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 
+# Get Discord ID mappings
+DISCORD_ID_KYLE = os.getenv("DISCORD_ID_KYLE")
+DISCORD_ID_GABRIEL = os.getenv("DISCORD_ID_GABRIEL")
+DISCORD_ID_MELISSA = os.getenv("DISCORD_ID_MELISSA")
+DISCORD_ID_KENNY = os.getenv("DISCORD_ID_KENNY")
+DISCORD_ID_NIKKI = os.getenv("DISCORD_ID_NIKKI")
+
 # Validate required environment variables
 if not all([NOTION_API_KEY, DATABASE_ID, DISCORD_BOT_TOKEN]):
     raise ValueError("Missing required environment variables. Please check your .env file.")
+
+# Create Discord ID to Notion name mapping
+DISCORD_TO_NOTION = {}
+if DISCORD_ID_KYLE:
+    DISCORD_TO_NOTION[DISCORD_ID_KYLE] = "Kyle"
+if DISCORD_ID_GABRIEL:
+    DISCORD_TO_NOTION[DISCORD_ID_GABRIEL] = "Gabriel"
+if DISCORD_ID_MELISSA:
+    DISCORD_TO_NOTION[DISCORD_ID_MELISSA] = "Melissa"
+if DISCORD_ID_KENNY:
+    DISCORD_TO_NOTION[DISCORD_ID_KENNY] = "Kenny"
+if DISCORD_ID_NIKKI:
+    DISCORD_TO_NOTION[DISCORD_ID_NIKKI] = "Nikki"
 
 # Headers for Notion API
 HEADERS = {
@@ -156,10 +176,12 @@ def get_user_tasks(person_name):
         return None
 
 
-def format_task_summary(person_name, tasks):
+def format_task_summary(discord_user, tasks):
     """Format task summary for Discord message"""
+    user_mention = discord_user.mention
+    
     if not tasks:
-        return f"❌ Could not retrieve tasks for {person_name}"
+        return f"❌ Could not retrieve tasks for {user_mention}"
     
     # Count tasks
     overdue_count = len(tasks["overdue"])
@@ -167,10 +189,10 @@ def format_task_summary(person_name, tasks):
     week_count = len(tasks["due_this_week"])
     
     if overdue_count == 0 and tomorrow_count == 0 and week_count == 0:
-        return f"✅ **{person_name}** has no upcoming or overdue tasks!"
+        return f"✅ {user_mention} has no upcoming or overdue tasks!"
     
     # Build message
-    message_parts = [f"📋 **Task Summary for {person_name}**\n"]
+    message_parts = [f"📋 **Task Summary for {user_mention}**\n"]
     
     # Overdue tasks
     if overdue_count > 0:
@@ -202,7 +224,8 @@ def format_task_summary(person_name, tasks):
 @bot.event
 async def on_ready():
     print(f'✅ {bot.user} is now online!')
-    print(f'📋 Ready to respond to task commands like !kyle, !sarah, etc.')
+    print(f'📋 Ready to respond to personal task commands: !me, !tasks, !mytasks')
+    print(f'👥 Registered users: {len(DISCORD_TO_NOTION)} ({", ".join(DISCORD_TO_NOTION.values())})')
 
 
 @bot.event
@@ -222,25 +245,24 @@ async def on_message(message):
     if message.author == bot.user:
         return
     
-    # Check if message starts with ! and is a name command
-    if message.content.startswith('!') and len(message.content) > 1:
-        command = message.content[1:].strip().lower()
+    # Check for personal task commands
+    if message.content.lower() in ['!me', '!tasks', '!mytasks']:
+        user_discord_id = str(message.author.id)
         
-        # Skip if it's a built-in bot command
-        if command in ['tasks', 'commands']:
-            await bot.process_commands(message)
+        # Look up user's Notion name
+        notion_name = DISCORD_TO_NOTION.get(user_discord_id)
+        
+        if not notion_name:
+            await message.channel.send("❌ You're not registered in the system. Contact an admin to add your Discord ID.")
             return
-        
-        # Treat as a name command
-        person_name = command.title()  # Capitalize first letter
         
         # Send "typing" indicator
         async with message.channel.typing():
             # Get tasks for this person
-            tasks = get_user_tasks(person_name)
+            tasks = get_user_tasks(notion_name)
             
             # Format and send response
-            response = format_task_summary(person_name, tasks)
+            response = format_task_summary(message.author, tasks)
             
             # Split long messages if needed (Discord has 2000 char limit)
             if len(response) > 2000:
@@ -255,32 +277,27 @@ async def on_message(message):
     await bot.process_commands(message)
 
 
-@bot.command(name='tasks')
+@bot.command(name='helpme')
 async def tasks_help(ctx):
     """Show help information"""
     help_text = """
 📋 **SAMA Task Bot Commands**
 
 **Personal Task Summary:**
-• `!kyle` - Show Kyle's tasks (overdue, tomorrow, this week)
-• `!sarah` - Show Sarah's tasks
-• `!john` - Show John's tasks
-• *Use any name that appears in your Notion Assign property*
-
-**Task Categories:**
-🚨 **OVERDUE** - Past due date, still "To do" or "In progress"
-⏰ **DUE TOMORROW** - Tasks due tomorrow
-📅 **DUE THIS WEEK** - Tasks due within the next 7 days
+• `!me` - Show your personal tasks (overdue, tomorrow, this week)
+• `!tasks` - Same as !me, show your tasks
+• `!mytasks` - Same as !me, show your tasks
 
 **Examples:**
-• `!kyle` → Shows Kyle's task summary
-• `!sarah` → Shows Sarah's task summary
-• `!tasks` → Shows this help message
+• `!me` → Shows your task summary
+• `!tasks` → Shows your task summary
+• `!help` → Shows this help message
+
+**Note:** You must be registered in the system to use this bot.
     """
     await ctx.send(help_text)
 
 
 if __name__ == "__main__":
-    print("🤖 Starting SAMA Task Bot...")
-    print("📝 Make sure to add DISCORD_BOT_TOKEN to your .env file")
+    print("Starting SAMA Task Bot...")
     bot.run(DISCORD_BOT_TOKEN)
